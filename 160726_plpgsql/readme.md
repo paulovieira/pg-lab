@@ -369,7 +369,8 @@ for new_row in (select * from jsonb_populate_recordset(null::t_users, input)) lo
         values ($1, $2)
         returning *;
     ', options->>'table_name');
-     raise notice 'command: %', command;
+
+     --raise notice 'command: %', command;
 
     -- execute the query contained in the command variable;
     -- reuse the new_row variable to assign the output of the insert query
@@ -870,7 +871,7 @@ select * from users_upsert_4('[
 - query is static (hard-coded)
 - accepts 1 object only 
 
-The input is a single json object which contains the id of the record to be deleted.
+Similar to 2.1. The input is a single json object which contains the id of the record to be deleted.
 
 ```sql
 CREATE OR REPLACE FUNCTION users_delete_1(input jsonb)
@@ -884,7 +885,6 @@ BEGIN
 
 row_to_delete := jsonb_populate_record(null::t_users, input);
 
--- reuse the new_row variable to assign the output of the insert query
 delete from t_users
 where id = row_to_delete.id
 returning * 
@@ -908,7 +908,7 @@ select * from users_delete_1('{ "id": 64 }')
 - query is static (hard-coded)
 - accepts an array of objects
 
-The input can be an array of objects where each object contains the id of the record to be deleted.
+Similar to 2.2. The input can be an array of objects where each object contains the id of the record to be deleted.
 
 ```sql
 CREATE OR REPLACE FUNCTION users_delete_2(input jsonb)
@@ -933,6 +933,7 @@ for row_to_delete in (select * from jsonb_populate_recordset(null::t_users, inpu
 
     -- append the record to the output recordset
     return next row_to_delete;
+    
 end loop;
 
 return;
@@ -945,6 +946,7 @@ LANGUAGE plpgsql;
 Example:
 ```sql
 select * from users_delete_2('{ "id": 64 }')
+select * from users_delete_2('[{ "id": 63 }, { "id": 64 }]')
 ```
 
 NOTE: the whole execution of the function is done as a transaction: if we give many records in the input and one of them has an invalid id (a row that has been deleted meanwhile), an error will be thrown (because we are using 'into strict') and the whole operation will be reverted (even though each 'delete' is done done separately for each input object).
@@ -954,11 +956,110 @@ NOTE: the whole execution of the function is done as a transaction: if we give m
 - query is dynamic
 - accepts 1 object only 
  
- TBD
+Similar to 2.3.
+
+```sql
+CREATE OR REPLACE FUNCTION users_delete_3(input jsonb, options jsonb)
+RETURNS SETOF t_users AS
+$BODY$
+
+DECLARE
+row_to_delete t_users%rowtype;
+command text;
+
+BEGIN
+
+row_to_delete := jsonb_populate_record(null::t_users, input);
+
+command := format('
+    delete from %I
+    where id = $1
+    returning * ;
+', options->>'table_name');
+
+-- raise notice 'command: %', command;
+
+execute command
+    into strict row_to_delete
+    using row_to_delete.id;
+
+return next row_to_delete;
+return;
+
+END;
+
+$BODY$
+LANGUAGE plpgsql;
+```
+
+Example:
+```sql
+select * from users_delete_3('
+{ "id": 3 }'
+, 
+'{"table_name": "t_users_0001" }'
+)
+```
 
 ### 4.4 - dynamic query, delete many row
 
 - query is dynamic
 - accepts an array of objects
 
-TBD
+```sql
+CREATE OR REPLACE FUNCTION users_delete_4(input jsonb, options jsonb)
+RETURNS SETOF t_users AS
+$BODY$
+
+DECLARE
+row_to_delete t_users%rowtype;
+command text;
+
+BEGIN
+
+IF  jsonb_typeof(input) = 'object' THEN
+    input := jsonb_build_array(input);
+END IF;
+
+for row_to_delete in (select * from jsonb_populate_recordset(null::t_users, input)) loop
+
+    command := format('
+        delete from %I
+        where id = $1
+        returning * ;
+    ', options->>'table_name');
+
+    -- raise notice 'command: %', command;
+
+    execute command
+        into strict row_to_delete
+        using row_to_delete.id;
+
+    return next row_to_delete;
+
+end loop;
+return;
+
+END;
+
+$BODY$
+LANGUAGE plpgsql;
+```
+
+Example:
+
+```sql
+select * from users_delete_4('
+{ "id": 5 }'
+, 
+'{"table_name": "t_users_0001" }'
+)
+
+select * from users_delete_4('[
+{ "id": 4 }, 
+{ "id": 7 }
+]'
+, 
+'{"table_name": "t_users_0001" }'
+)
+```

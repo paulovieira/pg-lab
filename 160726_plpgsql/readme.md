@@ -22,10 +22,11 @@ Instead of using direct queries to interact with the data, all queries will be c
 The basic structure of a pl/pgsql function is
 ```sql
 CREATE OR REPLACE FUNCTION  fn_name(input json)
-RETURNS SETOF t_users AS
+RETURNS SETOF t_users 
+AS $$
+/* begin of the main block */
 
-$BODY$
-
+/* declarations section (optional) */
 DECLARE
     
 var_1 int;
@@ -37,24 +38,25 @@ _input_var_2 int;
 
 BEGIN
 
+/* the actual function code is here */
 raise notice 'hello world! the time is %', now();
 
-/* the actual function code is here */
+
 
 END;
-
-$BODY$
+/* end of the main block */
+$$
 LANGUAGE plpgsql;
 ```
 
 This function would return a set of rows from t_users.
 If the function doesn't return anything, replace the line
 ```sql
-RETURNS SETOF t_users AS
+RETURNS SETOF t_users
 ```
 with 
 ```sql
-RETURNS void AS
+RETURNS void
 ```
 
 If we want the function to return some custom recordset, use instead something like this:
@@ -63,7 +65,7 @@ RETURNS TABLE(
     field_1 int,
     field_2 text,
     field_3 boolean
-) AS
+)
 ```
 
 The arguments are always passed as a json data: either a single json object or an array of objects. Inside the function the properties of the objects are assigned to a record variable using `jsonb_populate_record` (or `jsonb_populate_recordset`).
@@ -108,8 +110,8 @@ The input is a single json object which contains the values for the new record.
 
 ```sql
 CREATE OR REPLACE FUNCTION users_create_1(input jsonb)
-RETURNS SETOF t_users AS
-$BODY$
+RETURNS SETOF t_users 
+AS $$
 
 DECLARE
 new_row t_users%rowtype;
@@ -131,7 +133,7 @@ return next new_row;
 return;
 
 END;
-$BODY$
+$$
 LANGUAGE plpgsql;
 ```
 
@@ -186,8 +188,8 @@ This function is a generalization of 2.1 because the argument can still be just 
 
 ```sql
 CREATE OR REPLACE FUNCTION users_create_2(input jsonb)
-RETURNS SETOF t_users AS
-$BODY$
+RETURNS SETOF t_users 
+AS $$
 
 DECLARE
 new_row t_users%rowtype;
@@ -215,7 +217,7 @@ end loop;
 return;
 
 END;
-$BODY$
+$$
 LANGUAGE plpgsql;
 ```
 
@@ -247,8 +249,8 @@ In this case the function takes 2 parameters: the first is an object with the da
 
 ```sql
 CREATE OR REPLACE FUNCTION users_create_3(input jsonb, options jsonb)
-RETURNS SETOF t_users AS
-$BODY$
+RETURNS SETOF t_users 
+AS $$
 
 DECLARE
 new_row t_users%rowtype;
@@ -281,7 +283,7 @@ return;
 
 END;
 
-$BODY$
+$$
 LANGUAGE plpgsql;
 ```
 
@@ -346,8 +348,8 @@ This is the more general version of all functions in section 2.
 
 ```sql
 CREATE OR REPLACE FUNCTION users_create_4(input jsonb, options jsonb)
-RETURNS SETOF t_users AS
-$BODY$
+RETURNS SETOF t_users 
+AS $$
 
 DECLARE
 new_row t_users%rowtype;
@@ -388,7 +390,7 @@ return;
 
 END;
 
-$BODY$
+$$
 LANGUAGE plpgsql;
 ```
 
@@ -441,8 +443,8 @@ This is general case for 2.1:
 
 ```sql
 CREATE OR REPLACE FUNCTION users_upsert_1(input jsonb)
-RETURNS SETOF t_users AS
-$BODY$
+RETURNS SETOF t_users 
+AS $$
 
 DECLARE
 new_row     t_users%rowtype;
@@ -503,13 +505,13 @@ return next new_row;
 return;
 
 END;
-$BODY$
+$$
 LANGUAGE plpgsql;
 
 -- auxiliary function used to throw an exception when the row doesn't exist
 CREATE OR REPLACE FUNCTION  raise_exception_no_data_found(table_name text, pk_value text)
-RETURNS void AS
-$BODY$
+RETURNS void 
+AS $$
 
 BEGIN
 
@@ -519,7 +521,7 @@ RAISE EXCEPTION USING
     TABLE = table_name;
 END;
 
-$BODY$
+$$
 LANGUAGE plpgsql;
 ```
 
@@ -563,8 +565,8 @@ This is also a generalization of 3.1 because the argument can still be just 1 ob
 
 ```sql
 CREATE OR REPLACE FUNCTION users_upsert_2(input jsonb)
-RETURNS SETOF t_users AS
-$BODY$
+RETURNS SETOF t_users 
+AS $$
 
 DECLARE
 new_row     t_users%rowtype;
@@ -632,7 +634,7 @@ end loop;
 return;
 
 END;
-$BODY$
+$$
 LANGUAGE plpgsql;
 ```
 
@@ -663,8 +665,8 @@ This is a general case of 2.3.
 
 ```sql
 CREATE OR REPLACE FUNCTION users_upsert_3(input jsonb, options jsonb)
-RETURNS SETOF t_users AS
-$BODY$
+RETURNS SETOF t_users 
+AS $$
 
 DECLARE
 new_row     t_users%rowtype;
@@ -728,7 +730,7 @@ return next new_row;
 return;
 
 END;
-$BODY$
+$$
 LANGUAGE plpgsql;
 
 -- auxiliary function used to throw an exception when the row doesn't exist
@@ -771,8 +773,8 @@ This is the most general version of all the functions in sections 2 and 3.
 
 ```sql
 CREATE OR REPLACE FUNCTION users_upsert_4(input jsonb, options jsonb)
-RETURNS SETOF t_users AS
-$BODY$
+RETURNS SETOF t_users 
+AS $$
 
 DECLARE
 new_row     t_users%rowtype;
@@ -842,7 +844,7 @@ end loop;
 return;
 
 END;
-$BODY$
+$$
 LANGUAGE plpgsql;
 ```
 
@@ -875,8 +877,8 @@ Similar to 2.1. The input is a single json object which contains the id of the r
 
 ```sql
 CREATE OR REPLACE FUNCTION users_delete_1(input jsonb)
-RETURNS SETOF t_users AS
-$BODY$
+RETURNS SETOF t_users 
+AS $$
 
 DECLARE
 row_to_delete t_users%rowtype;
@@ -894,7 +896,7 @@ return next row_to_delete;
 return;
 
 END;
-$BODY$
+$$
 LANGUAGE plpgsql;
 ```
 
@@ -912,8 +914,8 @@ Similar to 2.2. The input can be an array of objects where each object contains 
 
 ```sql
 CREATE OR REPLACE FUNCTION users_delete_2(input jsonb)
-RETURNS SETOF t_users AS
-$BODY$
+RETURNS SETOF t_users 
+AS $$
 
 DECLARE
 row_to_delete t_users%rowtype;
@@ -939,7 +941,7 @@ end loop;
 return;
 
 END;
-$BODY$
+$$
 LANGUAGE plpgsql;
 ```
 
@@ -960,8 +962,8 @@ Similar to 2.3.
 
 ```sql
 CREATE OR REPLACE FUNCTION users_delete_3(input jsonb, options jsonb)
-RETURNS SETOF t_users AS
-$BODY$
+RETURNS SETOF t_users 
+AS $$
 
 DECLARE
 row_to_delete t_users%rowtype;
@@ -988,7 +990,7 @@ return;
 
 END;
 
-$BODY$
+$$
 LANGUAGE plpgsql;
 ```
 
@@ -1008,8 +1010,8 @@ select * from users_delete_3('
 
 ```sql
 CREATE OR REPLACE FUNCTION users_delete_4(input jsonb, options jsonb)
-RETURNS SETOF t_users AS
-$BODY$
+RETURNS SETOF t_users 
+AS $$
 
 DECLARE
 row_to_delete t_users%rowtype;
@@ -1042,7 +1044,7 @@ return;
 
 END;
 
-$BODY$
+$$
 LANGUAGE plpgsql;
 ```
 
@@ -1063,3 +1065,100 @@ select * from users_delete_4('[
 '{"table_name": "t_users_0001" }'
 )
 ```
+
+
+
+
+
+xxx
+a
+select * from t_users order by id desc limit 5;
+select * from users_delete_2('[{ "id": 60 }, { "id": 59 }]')
+
+
+select * from t_users
+alter table t_users add column if not exists is_admin2 bool;
+alter table t_users drop column is_admin2 bool;
+
+
+DO 
+$$ 
+DECLARE
+BEGIN
+        BEGIN
+            ALTER TABLE <table_name> ADD COLUMN <column_name> <column_type>;
+        EXCEPTION
+            WHEN duplicate_column THEN RAISE NOTICE 'column <column_name> already exists in <table_name>.';
+        END;
+END;
+$$ LANGUAGE  
+
+If no language is specified, DO defaults to PL/pgSQL
+
+
+
+
+
+DO $$
+
+DECLARE
+i int := 1;
+
+BEGIN
+--i := i + 1;
+--raise notice 'i: %', i;
+if i > 0 then
+  raise notice 'greater than zero';
+else
+  raise notice 'less or equal to zero';
+end if;
+
+END;
+$$ 
+LANGUAGE plpgsql;
+
+
+
+DO $$
+
+DECLARE
+i int := 1;
+
+BEGIN
+--i := i + 1;
+--raise notice 'i: %', i;
+if i > 0 then
+  raise notice 'greater than zero';
+else
+  raise notice 'less or equal to zero';
+end if;
+
+END;
+$$ 
+LANGUAGE plpythonu;
+
+
+
+/* begin of the main block */
+
+/* declarations section (optional) */
+DECLARE
+    
+var_1 int;
+var_2 text;
+
+-- variables for input data
+_input_var_1 text;
+_input_var_2 int;
+
+BEGIN
+
+/* the actual function code is here */
+raise notice 'hello world! the time is %', now();
+
+
+
+END;
+/* end of the main block */
+$$
+LANGUAGE plpgsql;

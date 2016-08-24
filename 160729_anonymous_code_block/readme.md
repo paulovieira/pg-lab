@@ -80,8 +80,7 @@ LANGUAGE plpythonu;
 ```
 
 
-Anonymous code blocks can be useful in situations where we have to change the tables and need to catch errors. For instance, to add a new column to a table there is no 'IF NOT EXISTS' for postgres <= 9.5. But we could do it easily inside a code block:
-
+Anonymous code blocks can be useful in situations where we have to make changes the tables, types, etc and need to catch errors. For instance, to add a new column to a table there is no 'IF NOT EXISTS' for postgres <= 9.5. But we could handle the error easily inside a code block:
 ```sql
 DO 
 $$ 
@@ -89,10 +88,17 @@ BEGIN
         BEGIN
             alter table <table_name> add column <column_name> <column_type>;
         EXCEPTION
-            WHEN duplicate_column THEN RAISE NOTICE 'column <column_name> already exists in <table_name>.';
+            WHEN duplicate_column THEN 
+                RAISE NOTICE 'column <column_name> already exists in <table_name>.';
+/*
+            WHEN other_condition_name THEN 
+                RAISE NOTICE 'message';
+*/
         END;
 END;
 $$
 LANGUAGE plpgsql;
 ```
 
+More details: "Trapping Errors"
+https://www.postgresql.org/docs/current/static/plpgsql-control-structures.html#PLPGSQL-ERROR-TRAPPING

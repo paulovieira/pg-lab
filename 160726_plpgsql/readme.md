@@ -21,7 +21,7 @@ Instead of using direct queries to interact with the data, all queries will be c
 
 The basic structure of a pl/pgsql function is
 ```sql
-CREATE OR REPLACE FUNCTION  fn_name(input json)
+CREATE OR REPLACE FUNCTION  fn_name(data jsonb)
 RETURNS SETOF t_users 
 AS $$
 /* begin of the main block */
@@ -32,9 +32,6 @@ DECLARE
 var_1 int;
 var_2 text;
 
--- variables for input data
-_input_var_1 text;
-_input_var_2 int;
 
 BEGIN
 
@@ -70,7 +67,7 @@ RETURNS TABLE(
 
 The arguments are always passed as a json data: either a single json object or an array of objects. Inside the function the properties of the objects are assigned to a record variable using `jsonb_populate_record` (or `jsonb_populate_recordset`).
 
-For some properties it might also make sense to assure that some default value is used case that property is missing in the input object. This can be achieved easily with `COALESCE`.
+For some properties it might also make sense to assure that some default value is used case that property is missing in the input data object. This can be achieved easily with `COALESCE`.
 
 This way, passing data from the nodejs web application to the postgres function is a direct step. The code should be something simple like
 
@@ -82,7 +79,7 @@ Db.query('select * from my_function($1)', data)
 We consider diferent versions of the functions taking into account the following criteria:
 - data can be inserted only vs can be inserted or updated (if an id is given)
 - static query (hard-coded) vs dynamic query
-- input can be only 1 row vs many rows (for upsert/delete functions)
+- input data can be only 1 row vs many rows (for upsert/delete functions)
 
 
 ## 1. Get data (select)
@@ -106,10 +103,10 @@ select * from users_create('[
 - query is static (hard-coded)
 - accepts 1 object only 
 
-The input is a single json object which contains the values for the new record.
+The input data is a single json object which contains the values for the new record.
 
 ```sql
-CREATE OR REPLACE FUNCTION users_create_1(input jsonb)
+CREATE OR REPLACE FUNCTION users_create_1(data jsonb)
 RETURNS SETOF t_users 
 AS $$
 
@@ -118,7 +115,7 @@ new_row t_users%rowtype;
 
 BEGIN
 
-new_row := jsonb_populate_record(null::t_users, input);
+new_row := jsonb_populate_record(null::t_users, data);
 
 -- consider default values if necessary
 new_row.is_admin := COALESCE(new_row.is_admin, false);
@@ -145,7 +142,7 @@ select * from users_create_1('{
 }')
 ```
 
-1) We use `jsonb_populate_record` to convert the input json object into a record. This way we have the values converted to proper postgres data types (typestamptz, double, etc)
+1) We use `jsonb_populate_record` to convert the input data json object into a record. This way we have the values converted to proper postgres data types (typestamptz, double, etc)
 
 2) We use `coalesce` to assign any necessary default values (if they are missing in the input object)
 
@@ -187,7 +184,7 @@ This function is a generalization of 2.1 because the argument can still be just 
 
 
 ```sql
-CREATE OR REPLACE FUNCTION users_create_2(input jsonb)
+CREATE OR REPLACE FUNCTION users_create_2(data jsonb)
 RETURNS SETOF t_users 
 AS $$
 
@@ -196,11 +193,11 @@ new_row t_users%rowtype;
 
 BEGIN
 
-IF  jsonb_typeof(input) = 'object' THEN
-    input := jsonb_build_array(input);
+IF  jsonb_typeof(data) = 'object' THEN
+    data := jsonb_build_array(data);
 END IF;
 
-for new_row in (select * from jsonb_populate_recordset(null::t_users, input)) loop
+for new_row in (select * from jsonb_populate_recordset(null::t_users, data)) loop
     -- consider default values if necessary
     new_row.is_admin := COALESCE(new_row.is_admin, false);
 
@@ -248,7 +245,7 @@ For instance, suppose we have now many tables with the same definition as t_user
 In this case the function takes 2 parameters: the first is an object with the data to be inserted, the second is an object with options necessary to construct the dynamic query (namely, "table_name" - the table where the data is to be inserted).
 
 ```sql
-CREATE OR REPLACE FUNCTION users_create_3(input jsonb, options jsonb)
+CREATE OR REPLACE FUNCTION users_create_3(data jsonb, options jsonb)
 RETURNS SETOF t_users 
 AS $$
 
@@ -258,7 +255,7 @@ command text;
 
 BEGIN
 
-new_row := jsonb_populate_record(null::t_users, input);
+new_row := jsonb_populate_record(null::t_users, data);
 
 -- assign input data, consider default values if necessary
 new_row.is_admin := COALESCE(new_row.is_admin, false);
@@ -347,7 +344,7 @@ The evolution from 2.3 to 2.4 is similar to the one from 2.1 to 2.2: we loop ove
 This is the more general version of all functions in section 2.
 
 ```sql
-CREATE OR REPLACE FUNCTION users_create_4(input jsonb, options jsonb)
+CREATE OR REPLACE FUNCTION users_create_4(data jsonb, options jsonb)
 RETURNS SETOF t_users 
 AS $$
 
@@ -357,13 +354,13 @@ command text;
 
 BEGIN
 
-IF  jsonb_typeof(input) = 'object' THEN
-    input := jsonb_build_array(input);
+IF  jsonb_typeof(data) = 'object' THEN
+    data := jsonb_build_array(data);
 END IF;
 
-for new_row in (select * from jsonb_populate_recordset(null::t_users, input)) loop
+for new_row in (select * from jsonb_populate_recordset(null::t_users, data)) loop
 
-    -- assign input data, consider default values if necessary
+    -- assign input data to a record, consider default values if necessary
     new_row.is_admin := COALESCE(new_row.is_admin, false);
 
     command := format('
@@ -426,12 +423,12 @@ select * from users_create_4('
 
 The code will become a bit more complicated but we will have a function that can handle both inserting new data and updating existing data. So these functions are a generalization of the respective functions in section 2 and they should bethe first choice (unless we are sure the data is never going to be updated).
 
-- if the input object doesn't have the 'id' property, we assume it is new data to be inserted (behaves like the functions in section 2)
-- if the input object has the 'id' property, we assume it is existing data that should be updated.
+- if the input data object doesn't have the 'id' property, we assume it is new data to be inserted (behaves like the functions in section 2)
+- if the input data object has the 'id' property, we assume it is existing data that should be updated.
 
 So we don't allow the user to create a new record and give an explicit id at the same time (the user could call 'nextval' on the sequence). In other words: if the user wants to create a new record, the id can't be given.
 
-If the input object has the 'id' property but that record doesn't exist (it might have been deleted meanwhile), an error is thrown.
+If the input data object has the 'id' property but that record doesn't exist (it might have been deleted meanwhile), an error is thrown.
 
 ### 3.1 - static query, create or update 1 row
 
@@ -442,7 +439,7 @@ This is general case for 2.1:
 
 
 ```sql
-CREATE OR REPLACE FUNCTION users_upsert_1(input jsonb)
+CREATE OR REPLACE FUNCTION users_upsert_1(data jsonb)
 RETURNS SETOF t_users 
 AS $$
 
@@ -453,7 +450,7 @@ n int;
 
 BEGIN
 
-new_row := jsonb_populate_record(null::t_users, input);
+new_row := jsonb_populate_record(null::t_users, data);
 
 -- if the id was not given in the input, this is a new row
 if new_row.id is null then
@@ -544,7 +541,7 @@ select * from users_upsert_1('{
 }');
 ```
 
-Some notes about missing properties in the input object:
+Some notes about missing properties in the input data object:
 
 If the id is given (which means we are updating existing data) and if some column is missing in the properties of the input object (for instance, "name"), then the current value of that row will remain untouched (because in `coalesce` we use 'current_row.column_name' as the 2nd argument).
 
@@ -564,7 +561,7 @@ The code is the same as 3.1. We just do a copy-paste inside the loop.
 This is also a generalization of 3.1 because the argument can still be just 1 object.
 
 ```sql
-CREATE OR REPLACE FUNCTION users_upsert_2(input jsonb)
+CREATE OR REPLACE FUNCTION users_upsert_2(data jsonb)
 RETURNS SETOF t_users 
 AS $$
 
@@ -575,13 +572,13 @@ n int;
 
 BEGIN
 
-IF  jsonb_typeof(input) = 'object' THEN
-    input := jsonb_build_array(input);
+IF  jsonb_typeof(data) = 'object' THEN
+    data := jsonb_build_array(data);
 END IF;
 
-for new_row in (select * from jsonb_populate_recordset(null::t_users, input)) loop
+for new_row in (select * from jsonb_populate_recordset(null::t_users, data)) loop
 
-    -- if the id was not given in the input, this is a new row
+    -- if the id was not given in the input data, this is a new row
     if new_row.id is null then
         new_row.id := nextval(pg_get_serial_sequence('t_users', 'id'));
     else
@@ -616,8 +613,8 @@ for new_row in (select * from jsonb_populate_recordset(null::t_users, input)) lo
     )
     /*  
     this part is executed only if the id was given and corresponds to an 
-    existing record; if some fields were not given in the input object, the
-    current data for those fields will be used (see the usage of coalesce) 
+    existing record; if some fields were not given in the input data object,
+    the current data for those fields will be used (see the usage of coalesce) 
     */
 
     on conflict (id) do update set
@@ -664,7 +661,7 @@ This is a general case of 2.3.
 - accepts 1 object only
 
 ```sql
-CREATE OR REPLACE FUNCTION users_upsert_3(input jsonb, options jsonb)
+CREATE OR REPLACE FUNCTION users_upsert_3(data jsonb, options jsonb)
 RETURNS SETOF t_users 
 AS $$
 
@@ -676,7 +673,7 @@ n int;
 
 BEGIN
 
-new_row := jsonb_populate_record(null::t_users, input);
+new_row := jsonb_populate_record(null::t_users, data);
 
 -- if the id was not given in the input, this is a new row; we have to 
 -- pass table_name to get the sequence of the correct table
@@ -772,7 +769,7 @@ This is a general case of 2.4:
 This is the most general version of all the functions in sections 2 and 3.
 
 ```sql
-CREATE OR REPLACE FUNCTION users_upsert_4(input jsonb, options jsonb)
+CREATE OR REPLACE FUNCTION users_upsert_4(data jsonb, options jsonb)
 RETURNS SETOF t_users 
 AS $$
 
@@ -784,11 +781,11 @@ n int;
 
 BEGIN
 
-IF  jsonb_typeof(input) = 'object' THEN
-    input := jsonb_build_array(input);
+IF  jsonb_typeof(data) = 'object' THEN
+    data := jsonb_build_array(data);
 END IF;
 
-for new_row in (select * from jsonb_populate_recordset(null::t_users, input)) loop
+for new_row in (select * from jsonb_populate_recordset(null::t_users, data)) loop
 
     -- if the id was not given in the input, this is a new row; we have to 
     -- pass table_name to get the sequence of the correct table
@@ -876,7 +873,7 @@ select * from users_upsert_4('[
 Similar to 2.1. The input is a single json object which contains the id of the record to be deleted.
 
 ```sql
-CREATE OR REPLACE FUNCTION users_delete_1(input jsonb)
+CREATE OR REPLACE FUNCTION users_delete_1(data jsonb)
 RETURNS SETOF t_users 
 AS $$
 
@@ -885,7 +882,7 @@ row_to_delete t_users%rowtype;
 
 BEGIN
 
-row_to_delete := jsonb_populate_record(null::t_users, input);
+row_to_delete := jsonb_populate_record(null::t_users, data);
 
 delete from t_users
 where id = row_to_delete.id
@@ -913,7 +910,7 @@ select * from users_delete_1('{ "id": 64 }')
 Similar to 2.2. The input can be an array of objects where each object contains the id of the record to be deleted.
 
 ```sql
-CREATE OR REPLACE FUNCTION users_delete_2(input jsonb)
+CREATE OR REPLACE FUNCTION users_delete_2(data jsonb)
 RETURNS SETOF t_users 
 AS $$
 
@@ -922,11 +919,11 @@ row_to_delete t_users%rowtype;
 
 BEGIN
 
-IF  jsonb_typeof(input) = 'object' THEN
-    input := jsonb_build_array(input);
+IF  jsonb_typeof(data) = 'object' THEN
+    data := jsonb_build_array(data);
 END IF;
 
-for row_to_delete in (select * from jsonb_populate_recordset(null::t_users, input)) loop
+for row_to_delete in (select * from jsonb_populate_recordset(null::t_users, data)) loop
 
     delete from t_users
     where id = row_to_delete.id
@@ -961,7 +958,7 @@ NOTE: the whole execution of the function is done as a transaction: if we give m
 Similar to 2.3.
 
 ```sql
-CREATE OR REPLACE FUNCTION users_delete_3(input jsonb, options jsonb)
+CREATE OR REPLACE FUNCTION users_delete_3(data jsonb, options jsonb)
 RETURNS SETOF t_users 
 AS $$
 
@@ -971,7 +968,7 @@ command text;
 
 BEGIN
 
-row_to_delete := jsonb_populate_record(null::t_users, input);
+row_to_delete := jsonb_populate_record(null::t_users, data);
 
 command := format('
     delete from %I
@@ -1009,7 +1006,7 @@ select * from users_delete_3('
 - accepts an array of objects
 
 ```sql
-CREATE OR REPLACE FUNCTION users_delete_4(input jsonb, options jsonb)
+CREATE OR REPLACE FUNCTION users_delete_4(data jsonb, options jsonb)
 RETURNS SETOF t_users 
 AS $$
 
@@ -1019,11 +1016,11 @@ command text;
 
 BEGIN
 
-IF  jsonb_typeof(input) = 'object' THEN
-    input := jsonb_build_array(input);
+IF  jsonb_typeof(data) = 'object' THEN
+    data := jsonb_build_array(data);
 END IF;
 
-for row_to_delete in (select * from jsonb_populate_recordset(null::t_users, input)) loop
+for row_to_delete in (select * from jsonb_populate_recordset(null::t_users, data)) loop
 
     command := format('
         delete from %I

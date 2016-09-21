@@ -23,7 +23,7 @@ The basic structure of a pl/pgsql function is
 ```sql
 CREATE OR REPLACE FUNCTION  fn_name(data jsonb)
 RETURNS SETOF t_users 
-AS $$
+AS $fn$
 /* begin of the main block */
 
 /* declarations section (optional) */
@@ -42,7 +42,7 @@ raise notice 'hello world! the time is %', now();
 
 END;
 /* end of the main block */
-$$
+$fn$
 LANGUAGE plpgsql;
 ```
 
@@ -84,6 +84,8 @@ We consider diferent versions of the functions taking into account the following
 
 ## 1. Get data (select)
 
+TO BE DONE
+
 ## 2. Create data (simple 'insert')
 
 The data to be created is passed to the funcion in json format as a single object or as an array of objects. The objects should have the same fields as the table.
@@ -97,7 +99,7 @@ select * from users_create('[
 ]')
 ```
 
-### 2.1 - static query, insert 1 row
+### 2.1 - insert 1 row, static query
 
 - data can be created only
 - query is static (hard-coded)
@@ -108,7 +110,7 @@ The input data is a single json object which contains the values for the new rec
 ```sql
 CREATE OR REPLACE FUNCTION users_create_1(data jsonb)
 RETURNS SETOF t_users 
-AS $$
+AS $fn$
 
 DECLARE
 new_row t_users%rowtype;
@@ -130,7 +132,7 @@ return next new_row;
 return;
 
 END;
-$$
+$fn$
 LANGUAGE plpgsql;
 ```
 
@@ -170,7 +172,7 @@ select * from users_create_1('{
 (the property "abc":123 will be ignored in the record created by `jsonb_populate_record`).
 
 
-### 2.2 static query, insert many rows
+### 2.2 insert many rows, static query
 
 - data can be created only
 - query is static (hard-coded)
@@ -186,7 +188,7 @@ This function is a generalization of 2.1 because the argument can still be just 
 ```sql
 CREATE OR REPLACE FUNCTION users_create_2(data jsonb)
 RETURNS SETOF t_users 
-AS $$
+AS $fn$
 
 DECLARE
 new_row t_users%rowtype;
@@ -214,7 +216,7 @@ end loop;
 return;
 
 END;
-$$
+$fn$
 LANGUAGE plpgsql;
 ```
 
@@ -232,7 +234,7 @@ select * from users_create_2('[
 ```
 
 
-### 2.3 - dynamic query, insert 1 row
+### 2.3 - insert 1 row, dynamic query
 
 - data can be created only
 - query is dynamic
@@ -247,29 +249,35 @@ In this case the function takes 2 parameters: the first is an object with the da
 ```sql
 CREATE OR REPLACE FUNCTION users_create_3(data jsonb, options jsonb)
 RETURNS SETOF t_users 
-AS $$
+AS $fn$
 
 DECLARE
 new_row t_users%rowtype;
-command text;
+query text;
 
+_table_name text;
 BEGIN
 
 new_row := jsonb_populate_record(null::t_users, data);
 
+-- assign options data
+_table_name := COALESCE(options->>'table_name', '');
+
 -- assign input data, consider default values if necessary
 new_row.is_admin := COALESCE(new_row.is_admin, false);
 
-command := format('
+query := $$
     insert into %I(name, is_admin)
     values ($1, $2)
     returning *;
-', options->>'table_name');
--- raise notice 'command: %', command;
+$$;
 
--- execute the query contained in the command variable;
+query := format(query, _table_name);
+raise notice 'query: %', query;
+
+-- execute the query contained in the query variable;
 -- reuse the new_row variable to assign the output of the insert query
-execute command
+execute query
     into strict new_row
     using 
         new_row.name, 
@@ -280,7 +288,7 @@ return;
 
 END;
 
-$$
+$fn$
 LANGUAGE plpgsql;
 ```
 
@@ -315,23 +323,23 @@ https://www.postgresql.org/docs/current/static/functions-string.html#FUNCTIONS-S
 
 The main differences in relation to 2.1 are:
 
-1) The dynamic command is constructed using `format` and stored in the 'command' variable (text). 
-We should still use the 'returning *' clause in the dynamic command to return the output of the query, but not 'into strict new_record'
+1) The dynamic query is constructed using `format` and stored in the 'query' variable (text). 
+We should still use the 'returning *' clause in the dynamic query to return the output of the query, but not 'into strict new_record'
 
-2) The command is executed with the 'execute' statement. The output of the query will be assigned to the record variable given in the 'into' clause (as before):
+2) The query is executed with the 'execute' statement. The output of the query will be assigned to the record variable given in the 'into' clause (as before):
 ```sql
-execute command
+execute query
 into strict new_row
 using ..., ...;
 ```
 
-3) When executing the dynamic command we can pass parameter values in the 'USING' clause. These values are referenced in the command as $1, $2, etc. 
-This method is often preferable to inserting data values directly into the dynamic command string (as plain text, using either `format` or direct concatenation):
+3) When executing the dynamic query we can pass parameter values in the 'USING' clause. These values are referenced in the query as $1, $2, etc. 
+This method is often preferable to inserting data values directly into the dynamic query string (as plain text, using either `format` or direct concatenation):
 - it avoids the run-time overhead of converting the values to text and back, 
 - it is much less prone to SQL-injection attacks since there is no need for quoting or escaping. 
 
 
-### 2.4 dynamic query, insert many rows
+### 2.4 insert many rows, dynamic query
 
 - data can be created only
 - query is dynamic
@@ -346,11 +354,13 @@ This is the more general version of all functions in section 2.
 ```sql
 CREATE OR REPLACE FUNCTION users_create_4(data jsonb, options jsonb)
 RETURNS SETOF t_users 
-AS $$
+AS $fn$
 
 DECLARE
 new_row t_users%rowtype;
-command text;
+query text;
+
+_table_name text;
 
 BEGIN
 
@@ -358,22 +368,26 @@ IF  jsonb_typeof(data) = 'object' THEN
     data := jsonb_build_array(data);
 END IF;
 
+-- assign options data
+_table_name := COALESCE(options->>'table_name', '');
+
+query := $$
+    insert into %I(name, is_admin)
+    values ($1, $2)
+    returning *;
+$$;
+
+query := format(query, _table_name);
+raise notice 'query: %', query;
+
 for new_row in (select * from jsonb_populate_recordset(null::t_users, data)) loop
 
     -- assign input data to a record, consider default values if necessary
     new_row.is_admin := COALESCE(new_row.is_admin, false);
 
-    command := format('
-        insert into %I(name, is_admin)
-        values ($1, $2)
-        returning *;
-    ', options->>'table_name');
-
-     --raise notice 'command: %', command;
-
-    -- execute the query contained in the command variable;
-    -- reuse the new_row variable to assign the output of the insert query
-    execute command
+    -- execute the query contained in the query variable;
+    -- reuse the new_row variable to assign the output 
+    execute query
         into strict new_row
         using 
             new_row.name, 
@@ -387,7 +401,7 @@ return;
 
 END;
 
-$$
+$fn$
 LANGUAGE plpgsql;
 ```
 
@@ -430,7 +444,7 @@ So we don't allow the user to create a new record and give an explicit id at the
 
 If the input data object has the 'id' property but that record doesn't exist (it might have been deleted meanwhile), an error is thrown.
 
-### 3.1 - static query, create or update 1 row
+### 3.1 - create or update 1 row, static query
 
 This is general case for 2.1:
 - data can be created OR updated
@@ -441,7 +455,7 @@ This is general case for 2.1:
 ```sql
 CREATE OR REPLACE FUNCTION users_upsert_1(data jsonb)
 RETURNS SETOF t_users 
-AS $$
+AS $fn$
 
 DECLARE
 new_row     t_users%rowtype;
@@ -502,13 +516,13 @@ return next new_row;
 return;
 
 END;
-$$
+$fn$
 LANGUAGE plpgsql;
 
 -- auxiliary function used to throw an exception when the row doesn't exist
 CREATE OR REPLACE FUNCTION  raise_exception_no_data_found(table_name text, pk_value text)
 RETURNS void 
-AS $$
+AS $fn$
 
 BEGIN
 
@@ -518,7 +532,7 @@ RAISE EXCEPTION USING
     TABLE = table_name;
 END;
 
-$$
+$fn$
 LANGUAGE plpgsql;
 ```
 
@@ -547,7 +561,7 @@ If the id is given (which means we are updating existing data) and if some colum
 
 However if the id is not given (which means we are creating new data) and if some column is missing in the input object, then the default value for that property will be used (as defined in the 3rd argument to `coalesce`). If there is no default value, null will be used. If the table has default values in its definition, they are not applied because we explicitely listing all the columns in 'insert'. This means we might have to use explicitely 3 arguments to `coalesce` (the 3rd being the default value from the table definition).
 
-### 3.2 - static query, create or update many rows
+### 3.2 - create or update many rows, static query
 
 This is the general case for 2.2. 
 - data can be created OR updated
@@ -563,7 +577,7 @@ This is also a generalization of 3.1 because the argument can still be just 1 ob
 ```sql
 CREATE OR REPLACE FUNCTION users_upsert_2(data jsonb)
 RETURNS SETOF t_users 
-AS $$
+AS $fn$
 
 DECLARE
 new_row     t_users%rowtype;
@@ -631,7 +645,7 @@ end loop;
 return;
 
 END;
-$$
+$fn$
 LANGUAGE plpgsql;
 ```
 
@@ -653,7 +667,7 @@ select * from users_upsert_2('[
 
 NOTE: the whole execution of the function is done as a transaction: if we give many records in the input and one of them has an invalid id (a row that has been deleted meanwhile), the error will be thrown and the whole operation will be reverted (even though each 'insert' is done done separately for each input object).
 
-### 3.3 - dynamic query, create or update 1 row
+### 3.3 - create or update 1 row, dynamic query
 
 This is a general case of 2.3.
 - data can be created OR updated
@@ -663,29 +677,31 @@ This is a general case of 2.3.
 ```sql
 CREATE OR REPLACE FUNCTION users_upsert_3(data jsonb, options jsonb)
 RETURNS SETOF t_users 
-AS $$
+AS $fn$
 
 DECLARE
 new_row     t_users%rowtype;
 current_row t_users%rowtype;
-command text;
+query text;
 n int;
+
+_table_name text;
 
 BEGIN
 
 new_row := jsonb_populate_record(null::t_users, data);
 
+-- assign options data
+_table_name := COALESCE(options->>'table_name', '');
+
 -- if the id was not given in the input, this is a new row; we have to 
 -- pass table_name to get the sequence of the correct table
 if new_row.id is null then
-    new_row.id := nextval(pg_get_serial_sequence(options->>'table_name', 'id'));
+    new_row.id := nextval(pg_get_serial_sequence(_table_name, 'id'));
 else
     -- else, this is an existing row; make sure the row actually exists;
     -- see http://www.postgresql.org/docs/9.5/static/plpgsql-statements.html
-    command := format('SELECT * FROM %I where id = $1 FOR UPDATE;', options->>'table_name');
-    --raise notice 'command: %', command;
-
-    EXECUTE command
+    EXECUTE format('SELECT * FROM %I where id = $1 FOR UPDATE;', _table_name)
         INTO current_row
         USING new_row.id;
 
@@ -693,7 +709,7 @@ else
 
     -- if the row does not exist, throw an exception (it was deleted meanwhile)
     IF n = 0 THEN
-        PERFORM raise_exception_no_data_found(options->>'table_name', new_row.id::text);
+        PERFORM raise_exception_no_data_found(_table_name, new_row.id::text);
     END IF;
 end if;
 
@@ -703,20 +719,19 @@ new_row.name     := COALESCE(new_row.name,     current_row.name);
 new_row.is_admin := COALESCE(new_row.is_admin, current_row.is_admin, false);
 
 -- the rest of the code is similar to 2.2; we just add the on conflict clause;
-command := format('
+query := $$
     insert into %I(id, name, is_admin)
     values ($1, $2, $3)
     on conflict (id) do update set
         name     = excluded.name,
         is_admin = excluded.is_admin
     returning *; 
-',
-options->>'table_name'
-);
+$$;
 
-raise notice 'command: %', command;
+query := format(query, _table_name);
+raise notice 'query: %', query;
 
-execute command
+execute query
 into strict new_row
 using 
     new_row.id,
@@ -727,13 +742,9 @@ return next new_row;
 return;
 
 END;
-$$
+$fn$
 LANGUAGE plpgsql;
 
--- auxiliary function used to throw an exception when the row doesn't exist
-CREATE OR REPLACE FUNCTION  raise_exception_no_data_found(table_name text, pk_value text)
--- (same as defined in 2.3)
-LANGUAGE plpgsql;
 ```
 
 Example:
@@ -759,7 +770,7 @@ select * from users_upsert_3('
 );
 ```
 
-### 3.4 - dynamic query, create or update many rows
+### 3.4 - create or update many rows, dynamic query
 
 This is a general case of 2.4:
 - data can be created OR updated
@@ -771,13 +782,15 @@ This is the most general version of all the functions in sections 2 and 3.
 ```sql
 CREATE OR REPLACE FUNCTION users_upsert_4(data jsonb, options jsonb)
 RETURNS SETOF t_users 
-AS $$
+AS $fn$
 
 DECLARE
 new_row     t_users%rowtype;
 current_row t_users%rowtype;
-command text;
+query text;
 n int;
+
+_table_name text;
 
 BEGIN
 
@@ -785,19 +798,31 @@ IF  jsonb_typeof(data) = 'object' THEN
     data := jsonb_build_array(data);
 END IF;
 
+-- assign options data
+_table_name := COALESCE(options->>'table_name', '');
+
+query := $$
+    insert into %I(id, name, is_admin)
+    values ($1, $2, $3)
+    on conflict (id) do update set
+        name     = excluded.name,
+        is_admin = excluded.is_admin
+    returning *; 
+$$;
+
+query := format(query, _table_name);
+raise notice 'query: %', query;
+
 for new_row in (select * from jsonb_populate_recordset(null::t_users, data)) loop
 
     -- if the id was not given in the input, this is a new row; we have to 
     -- pass table_name to get the sequence of the correct table
     if new_row.id is null then
-        new_row.id := nextval(pg_get_serial_sequence(options->>'table_name', 'id'));
+        new_row.id := nextval(pg_get_serial_sequence(_table_name, 'id'));
     else
         -- else, this is an existing row; make sure the row actually exists;
         -- see http://www.postgresql.org/docs/9.5/static/plpgsql-statements.html
-        command := format('SELECT * FROM %I where id = $1 FOR UPDATE;', options->>'table_name');
-        --raise notice 'command: %', command;
-
-        EXECUTE command
+        EXECUTE format('SELECT * FROM %I where id = $1 FOR UPDATE;', _table_name)
             INTO current_row
             USING new_row.id;
 
@@ -805,7 +830,7 @@ for new_row in (select * from jsonb_populate_recordset(null::t_users, data)) loo
 
         -- if the row does not exist, throw an exception (it was deleted meanwhile)
         IF n = 0 THEN
-            PERFORM raise_exception_no_data_found(options->>'table_name', new_row.id::text);
+            PERFORM raise_exception_no_data_found(_table_name, new_row.id::text);
         END IF;
     end if;
 
@@ -815,20 +840,8 @@ for new_row in (select * from jsonb_populate_recordset(null::t_users, data)) loo
     new_row.is_admin := COALESCE(new_row.is_admin, current_row.is_admin, false);
 
     -- the rest of the code is similar to 2.2; we just add the on conflict clause;
-    command := format('
-        insert into %I(id, name, is_admin)
-        values ($1, $2, $3)
-        on conflict (id) do update set
-            name     = excluded.name,
-            is_admin = excluded.is_admin
-        returning *; 
-    ',
-    options->>'table_name'
-    );
 
-    raise notice 'command: %', command;
-
-    execute command
+    execute query
     into strict new_row
     using 
         new_row.id,
@@ -841,7 +854,7 @@ end loop;
 return;
 
 END;
-$$
+$fn$
 LANGUAGE plpgsql;
 ```
 
@@ -865,7 +878,7 @@ select * from users_upsert_4('[
 ## 4. Delete data
 
 
-### 4.1 - static query, delete 1 row
+### 4.1 - delete 1 row, static query
 
 - query is static (hard-coded)
 - accepts 1 object only 
@@ -875,7 +888,7 @@ Similar to 2.1. The input is a single json object which contains the id of the r
 ```sql
 CREATE OR REPLACE FUNCTION users_delete_1(data jsonb)
 RETURNS SETOF t_users 
-AS $$
+AS $fn$
 
 DECLARE
 row_to_delete t_users%rowtype;
@@ -893,7 +906,7 @@ return next row_to_delete;
 return;
 
 END;
-$$
+$fn$
 LANGUAGE plpgsql;
 ```
 
@@ -902,7 +915,7 @@ Example:
 select * from users_delete_1('{ "id": 64 }')
 ```
 
-### 4.2 - static query, delete many row
+### 4.2 - delete many row, static query
 
 - query is static (hard-coded)
 - accepts an array of objects
@@ -912,7 +925,7 @@ Similar to 2.2. The input can be an array of objects where each object contains 
 ```sql
 CREATE OR REPLACE FUNCTION users_delete_2(data jsonb)
 RETURNS SETOF t_users 
-AS $$
+AS $fn$
 
 DECLARE
 row_to_delete t_users%rowtype;
@@ -938,7 +951,7 @@ end loop;
 return;
 
 END;
-$$
+$fn$
 LANGUAGE plpgsql;
 ```
 
@@ -950,7 +963,7 @@ select * from users_delete_2('[{ "id": 63 }, { "id": 64 }]')
 
 NOTE: the whole execution of the function is done as a transaction: if we give many records in the input and one of them has an invalid id (a row that has been deleted meanwhile), an error will be thrown (because we are using 'into strict') and the whole operation will be reverted (even though each 'delete' is done done separately for each input object).
 
-### 4.3 - dynamic query, delete one row
+### 4.3 - delete one row, dynamic query
 
 - query is dynamic
 - accepts 1 object only 
@@ -960,25 +973,28 @@ Similar to 2.3.
 ```sql
 CREATE OR REPLACE FUNCTION users_delete_3(data jsonb, options jsonb)
 RETURNS SETOF t_users 
-AS $$
+AS $fn$
 
 DECLARE
 row_to_delete t_users%rowtype;
-command text;
+query text;
+_table_name text;
 
 BEGIN
 
 row_to_delete := jsonb_populate_record(null::t_users, data);
+_table_name := options->>'table_name';
 
-command := format('
+query := $$
     delete from %I
     where id = $1
     returning * ;
-', options->>'table_name');
+$$;
 
--- raise notice 'command: %', command;
+query := format(query, _table_name);
+raise notice 'query: %', query;
 
-execute command
+execute query
     into strict row_to_delete
     using row_to_delete.id;
 
@@ -987,7 +1003,7 @@ return;
 
 END;
 
-$$
+$fn$
 LANGUAGE plpgsql;
 ```
 
@@ -1000,7 +1016,7 @@ select * from users_delete_3('
 )
 ```
 
-### 4.4 - dynamic query, delete many row
+### 4.4 - delete many row, dynamic query
 
 - query is dynamic
 - accepts an array of objects
@@ -1008,11 +1024,12 @@ select * from users_delete_3('
 ```sql
 CREATE OR REPLACE FUNCTION users_delete_4(data jsonb, options jsonb)
 RETURNS SETOF t_users 
-AS $$
+AS $fn$
 
 DECLARE
 row_to_delete t_users%rowtype;
-command text;
+query text;
+_table_name text;
 
 BEGIN
 
@@ -1020,17 +1037,20 @@ IF  jsonb_typeof(data) = 'object' THEN
     data := jsonb_build_array(data);
 END IF;
 
+_table_name := options->>'table_name';
+
+query := $$
+    delete from %I
+    where id = $1
+    returning * ;
+$$;
+
+query := format(query, _table_name);
+raise notice 'query: %', query;
+
 for row_to_delete in (select * from jsonb_populate_recordset(null::t_users, data)) loop
 
-    command := format('
-        delete from %I
-        where id = $1
-        returning * ;
-    ', options->>'table_name');
-
-    -- raise notice 'command: %', command;
-
-    execute command
+    execute query
         into strict row_to_delete
         using row_to_delete.id;
 
@@ -1041,7 +1061,7 @@ return;
 
 END;
 
-$$
+$fn$
 LANGUAGE plpgsql;
 ```
 

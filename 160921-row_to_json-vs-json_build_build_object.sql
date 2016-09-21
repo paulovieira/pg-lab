@@ -1,5 +1,5 @@
 /*
-bulding this example is based from this screencast:
+this example is based on this screencast:
 https://www.pgcasts.com/episodes/1/generating-json-from-sql/
 */
 

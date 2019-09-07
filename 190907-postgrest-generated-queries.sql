@@ -20,9 +20,9 @@ LEFT JOIN LATERAL(
 
 ORDER BY t_users.id
 
--- CASE A2) same as A1, but considering 2 forward relations; in this case, besides municipality_id, 
+-- CASE A2) same as A1, but considering 2 forward relations (at the same level); in this case, besides municipality_id, 
 -- t_user also has a foreign key to itself;
--- we duplicate the "LEFT JOIN LATERAL (...) ON TRUE" subquery
+-- we add a new "LEFT JOIN LATERAL (...) ON TRUE" + row_to_json
 
 -- /t_users?&select=id,email,municipality:municipality_id(id,name),creator:creator_id(id,email)
 
@@ -55,7 +55,7 @@ ORDER BY t_users.id
 -- CASE A3) same as A1, but considering a nested forward relation; that is, we fetch data for a foreign key
 -- present in the table (t_regions) referenced by the original foreign key (municipality_id); 
 -- in this case the nested foreign key (parent_nuts3_id) is a reference to itself, that is, 
--- t_regions has a reference to itself
+-- t_regions has a reference to itself;
 
 -- we use a nested LEFT JOIN LATERAL + row_to_json
 
@@ -174,3 +174,7 @@ LEFT JOIN LATERAL (
 GROUP BY t_users.email
 ORDER BY t_users.id
 
+
+-- TODO
+-- C1) consider a forward relation and a many-to-1 (both at the first level)
+-- C2) in example A3, consider a many-to-1 relation at the nested level
